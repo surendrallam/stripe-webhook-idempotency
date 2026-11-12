@@ -1,0 +1,23 @@
+[project]
+name = "stripe-webhook-idempotency"
+version = "0.1.0"
+description = "Stripe Checkout webhook on AWS Lambda that creates each order once, however often Stripe delivers the event."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = ["boto3>=1.34"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "moto[dynamodb,sqs]>=5", "cfn-lint>=1"]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "tests"]
+testpaths = ["tests"]

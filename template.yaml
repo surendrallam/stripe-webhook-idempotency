@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Stripe Checkout webhook that creates each order once (sample)
+
+Parameters:
+  StripeWebhookSecret:
+    Type: String
+    NoEcho: true
+    Description: Signing secret of the Stripe webhook endpoint (whsec_...). For production, load it from Secrets Manager at cold start instead of an environment variable.
+
+Resources:
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: order_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: order_id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  PrintJobsDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      FifoQueue: true
+      QueueName: !Sub "${AWS::StackName}-print-jobs-dlq.fifo"
+      MessageRetentionPeriod: 1209600
+
+  PrintJobsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      FifoQueue: true
+      QueueName: !Sub "${AWS::StackName}-print-jobs.fifo"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt PrintJobsDeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  WebhookFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.12
+      Handler: webhook.handler.lambda_handler
+      CodeUri: src/
+      Timeout: 10
+      MemorySize: 256
+      Environment:
+        Variables:
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          ORDERS_TABLE: !Ref OrdersTable
+          PRINT_QUEUE_URL: !Ref PrintJobsQueue
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt PrintJobsQueue.QueueName
+      Events:
+        StripeWebhook:
+          Type: HttpApi
+          Properties:
+            Path: /stripe/webhook
+            Method: POST
+
+Outputs:
+  WebhookUrl:
+    Description: Endpoint to register in the Stripe dashboard
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/stripe/webhook"
